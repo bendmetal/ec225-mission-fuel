@@ -121,6 +121,7 @@
   table.burn-table td { color: #e6edf3; }
   table.burn-table td:first-child, table.burn-table th:first-child { text-align: left; }
   table.burn-table tr.milestone td { color: #c7d2fe; font-weight: 600; background: rgba(129,140,248,0.08); }
+  .time-note { font-size: 9.5px; font-weight: 600; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 1px; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
   .info {
@@ -248,20 +249,20 @@
     <div class="field">
       <label>Planned Takeoff Weight</label>
       <div class="weight-pair">
-        <div class="weight-unit">
-          <div class="weight-unit-label">kg</div>
-          <div class="stepper">
-            <button onclick="stepWeightKg('wt',-100)">&minus;</button>
-            <input type="number" id="wt-kg" value="9500" step="100" oninput="syncWeightFromKg('wt')">
-            <button onclick="stepWeightKg('wt',100)">+</button>
-          </div>
-        </div>
-        <div class="weight-unit">
+        <div class="weight-unit emphasis-unit">
           <div class="weight-unit-label">lb</div>
           <div class="stepper">
             <button onclick="stepWeightLb('wt',-200)">&minus;</button>
-            <input type="number" id="wt-lb" value="20944" step="200" oninput="syncWeightFromLb('wt')">
+            <input type="number" class="emphasis" id="wt-lb" value="20944" step="200" oninput="syncWeightFromLb('wt')">
             <button onclick="stepWeightLb('wt',200)">+</button>
+          </div>
+        </div>
+        <div class="weight-unit de-emphasis-unit">
+          <div class="weight-unit-label">kg</div>
+          <div class="stepper">
+            <button onclick="stepWeightKg('wt',-100)">&minus;</button>
+            <input type="number" class="de-emphasis" id="wt-kg" value="9500" step="100" oninput="syncWeightFromKg('wt')">
+            <button onclick="stepWeightKg('wt',100)">+</button>
           </div>
         </div>
       </div>
@@ -271,20 +272,20 @@
     <div class="field">
       <label>Fuel on Board at Takeoff</label>
       <div class="weight-pair">
-        <div class="weight-unit">
-          <div class="weight-unit-label">kg</div>
-          <div class="stepper">
-            <button onclick="stepFuelKg('fuel',-50)">&minus;</button>
-            <input type="number" id="fuel-kg" value="1200" step="50" oninput="syncFuelFromKg('fuel')">
-            <button onclick="stepFuelKg('fuel',50)">+</button>
-          </div>
-        </div>
-        <div class="weight-unit">
+        <div class="weight-unit emphasis-unit">
           <div class="weight-unit-label">lb</div>
           <div class="stepper">
             <button onclick="stepFuelLb('fuel',-100)">&minus;</button>
-            <input type="number" id="fuel-lb" value="2646" step="100" oninput="syncFuelFromLb('fuel')">
+            <input type="number" class="emphasis" id="fuel-lb" value="2646" step="100" oninput="syncFuelFromLb('fuel')">
             <button onclick="stepFuelLb('fuel',100)">+</button>
+          </div>
+        </div>
+        <div class="weight-unit de-emphasis-unit">
+          <div class="weight-unit-label">kg</div>
+          <div class="stepper">
+            <button onclick="stepFuelKg('fuel',-50)">&minus;</button>
+            <input type="number" class="de-emphasis" id="fuel-kg" value="1200" step="50" oninput="syncFuelFromKg('fuel')">
+            <button onclick="stepFuelKg('fuel',50)">+</button>
           </div>
         </div>
       </div>
@@ -325,7 +326,7 @@
         <table class="burn-table" id="burn-table">
           <thead>
             <tr>
-              <th>Time (Takeoff)</th><th>TAS</th><th>GS</th><th>Weight (lb)</th><th>Fuel (lb)</th><th>Burn (lb/h)</th><th>Dist Rem (NM)</th>
+              <th>Time</th><th>TAS</th><th>GS</th><th>Weight (lb)</th><th>Fuel (lb)</th><th>Burn (lb/h)</th><th>Dist Rem (NM)</th>
             </tr>
           </thead>
           <tbody id="burn-tbody"></tbody>
@@ -711,9 +712,9 @@ function runPlanner(){
   for (const r of rows){
     const tr = document.createElement('tr');
     if (r.note) tr.classList.add('milestone');
-    const noteSuffix = (r.note && r.note !== 'Takeoff') ? ' &mdash; ' + r.note : '';
+    const noteLine = r.note ? '<div class="time-note">' + r.note + '</div>' : '';
     tr.innerHTML =
-      '<td>' + fmtTime(r.t) + noteSuffix + '</td>' +
+      '<td>' + fmtTime(r.t) + noteLine + '</td>' +
       '<td>' + (r.tas!==null ? r.tas : '&mdash;') + '</td>' +
       '<td>' + (r.gs!==null ? r.gs : '&mdash;') + '</td>' +
       '<td>' + Math.round(r.weightKg * KG_TO_LB).toLocaleString() + '</td>' +
