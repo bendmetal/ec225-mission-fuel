@@ -245,24 +245,25 @@
 
   <div class="section">
     <div class="section-title">Weight &amp; Fuel</div>
+    <div class="section-sub">Zero Fuel Weight is the aircraft empty weight plus crew and payload &mdash; everything except fuel. Fuel on board is added to it below to get total takeoff weight.</div>
 
     <div class="field">
-      <label>Planned Takeoff Weight</label>
+      <label>Zero Fuel Weight</label>
       <div class="weight-pair">
         <div class="weight-unit emphasis-unit">
           <div class="weight-unit-label">lb</div>
           <div class="stepper">
-            <button onclick="stepWeightLb('wt',-200)">&minus;</button>
-            <input type="number" class="emphasis" id="wt-lb" value="20944" step="200" oninput="syncWeightFromLb('wt')">
-            <button onclick="stepWeightLb('wt',200)">+</button>
+            <button onclick="stepWeightLb('zfw',-200); updateTotalWeight();">&minus;</button>
+            <input type="number" class="emphasis" id="zfw-lb" value="18298" step="200" oninput="syncWeightFromLb('zfw'); updateTotalWeight();">
+            <button onclick="stepWeightLb('zfw',200); updateTotalWeight();">+</button>
           </div>
         </div>
         <div class="weight-unit de-emphasis-unit">
           <div class="weight-unit-label">kg</div>
           <div class="stepper">
-            <button onclick="stepWeightKg('wt',-100)">&minus;</button>
-            <input type="number" class="de-emphasis" id="wt-kg" value="9500" step="100" oninput="syncWeightFromKg('wt')">
-            <button onclick="stepWeightKg('wt',100)">+</button>
+            <button onclick="stepWeightKg('zfw',-100); updateTotalWeight();">&minus;</button>
+            <input type="number" class="de-emphasis" id="zfw-kg" value="8300" step="100" oninput="syncWeightFromKg('zfw'); updateTotalWeight();">
+            <button onclick="stepWeightKg('zfw',100); updateTotalWeight();">+</button>
           </div>
         </div>
       </div>
@@ -275,19 +276,26 @@
         <div class="weight-unit emphasis-unit">
           <div class="weight-unit-label">lb</div>
           <div class="stepper">
-            <button onclick="stepFuelLb('fuel',-100)">&minus;</button>
-            <input type="number" class="emphasis" id="fuel-lb" value="2646" step="100" oninput="syncFuelFromLb('fuel')">
-            <button onclick="stepFuelLb('fuel',100)">+</button>
+            <button onclick="stepFuelLb('fuel',-100); updateTotalWeight();">&minus;</button>
+            <input type="number" class="emphasis" id="fuel-lb" value="2646" step="100" oninput="syncFuelFromLb('fuel'); updateTotalWeight();">
+            <button onclick="stepFuelLb('fuel',100); updateTotalWeight();">+</button>
           </div>
         </div>
         <div class="weight-unit de-emphasis-unit">
           <div class="weight-unit-label">kg</div>
           <div class="stepper">
-            <button onclick="stepFuelKg('fuel',-50)">&minus;</button>
-            <input type="number" class="de-emphasis" id="fuel-kg" value="1200" step="50" oninput="syncFuelFromKg('fuel')">
-            <button onclick="stepFuelKg('fuel',50)">+</button>
+            <button onclick="stepFuelKg('fuel',-50); updateTotalWeight();">&minus;</button>
+            <input type="number" class="de-emphasis" id="fuel-kg" value="1200" step="50" oninput="syncFuelFromKg('fuel'); updateTotalWeight();">
+            <button onclick="stepFuelKg('fuel',50); updateTotalWeight();">+</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Total Takeoff Weight <span style="text-transform:none;letter-spacing:0;color:#6b7280;">(Zero Fuel Weight + Fuel)</span></label>
+      <div class="summary-cell" style="text-align:center; padding: 12px;">
+        <div id="total-wt-display" style="font-size:19px; font-weight:600; color:#e6edf3;">&mdash;</div>
       </div>
     </div>
 
@@ -445,6 +453,28 @@ function lookupTorqueFuel(hp, oat, weight, tas){
   return [tqLo+(tqHi-tqLo)*hb.frac, fuLo+(fuHi-fuLo)*hb.frac];
 }
 
+// Table B's charted TAS columns don't extend as far at heavy weight / hot OAT /
+// high altitude as they do at lighter, cooler, lower conditions -- the torque
+// limit is reached before the chart bothers publishing a higher-TAS column.
+// This means Table A (economic cruise speed) can recommend a TAS that Table B
+// has no torque/fuel data for at the SAME hp/OAT/weight -- a real limitation
+// of the aircraft at that corner of the envelope, not a gap in the data.
+// Rather than halt the mission outright when that happens, find the highest
+// TAS Table B actually supports there and use that instead, flagging it so
+// the burn-down table shows where and why the cap kicked in.
+function maxChartedTasFor(hp, oat, weight, requestedTas){
+  if (lookupTorqueFuel(hp, oat, weight, requestedTas)[1] !== null) return requestedTas; // no cap needed
+  let lo = 0, hi = requestedTas;
+  // requestedTas itself already failed; walk downward in whole knots to find
+  // the highest TAS that still resolves. Table B's published columns are in
+  // 10kt steps, so scanning by 1kt will always land on (or just above) a
+  // resolvable interpolated point once we're inside the charted range.
+  for (let t = Math.floor(requestedTas) - 1; t >= 0; t--){
+    if (lookupTorqueFuel(hp, oat, weight, t)[1] !== null) return t;
+  }
+  return null; // nothing resolves at any TAS down to 0 -- genuinely outside the envelope
+}
+
 // Vy = 80 kt TAS at sea level, minus 1 kt per 1000 ft of pressure altitude (RFM Section 2, Vy definition)
 function vyAt(hp){ return 80 - (hp/1000); }
 
@@ -504,6 +534,20 @@ function stepFuelLb(prefix, delta){
   syncFuelFromLb(prefix);
 }
 
+// Total Takeoff Weight = Zero Fuel Weight + Fuel on Board. Purely a display +
+// the value actually fed into the mission engine -- there is no separate
+// "takeoff weight" field for the pilot to fill in inconsistently with the
+// fuel figure; this is the one number the rest of the tool uses.
+function updateTotalWeight(){
+  const zfwKg = parseFloat(document.getElementById('zfw-kg').value) || 0;
+  const fuelKg = parseFloat(document.getElementById('fuel-kg').value) || 0;
+  const totalKg = zfwKg + fuelKg;
+  const totalLb = totalKg * KG_TO_LB;
+  document.getElementById('total-wt-display').innerHTML =
+    Math.round(totalLb).toLocaleString() + ' lb <span style="color:#6b7280;font-weight:400;">/ ' + Math.round(totalKg).toLocaleString() + ' kg</span>';
+  return totalKg;
+}
+
 // --- Mission burn-down loop ---------------------------------------------
 // Runs 15-minute (0.25 hr) steps: at each step, look up TAS+fuel flow at the
 // CURRENT (burned-down) weight, apply wind to get ground speed, then advance
@@ -550,16 +594,33 @@ function runMission(params){
       stopReason = 'envelope';
       break;
     }
-    const [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, Math.round(tasChart));
+    // Table A (economic cruise TAS) can recommend a speed Table B has no
+    // torque/fuel data for at this same hp/OAT/weight -- heavy + hot + high
+    // reaches the torque limit before the chart's higher-TAS columns even
+    // exist. Rather than fail the whole mission there, cap at the fastest
+    // TAS Table B actually supports at this point and flag it on the row.
+    let tasUsed = Math.round(tasChart);
+    let [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
+    let tasCapped = false;
     if (fuelFlowKgH === null){
-      stopReason = 'envelope';
-      break;
+      const capped = maxChartedTasFor(hp, oat, weightKg, tasUsed);
+      if (capped === null){
+        stopReason = 'envelope';
+        break;
+      }
+      tasUsed = capped;
+      [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
+      if (fuelFlowKgH === null){
+        stopReason = 'envelope';
+        break;
+      }
+      tasCapped = true;
     }
     // Optional-equipment correction applies only to the displayed/achieved
     // airspeed (torque and fuel are unaffected, same reasoning as
-    // ec225-cruise-torque), and only when TAS >= Vy. Since tasChart already
+    // ec225-cruise-torque), and only when TAS >= Vy. Since tasUsed already
     // includes wind, the corrected value here is ground speed directly.
-    const gs = (equipPct > 0 && tasChart >= vy) ? tasChart * (1 - equipPct/100) : tasChart;
+    const gs = (equipPct > 0 && tasUsed >= vy) ? tasUsed * (1 - equipPct/100) : tasUsed;
     if (gs <= 0){
       stopReason = 'nogs';
       break;
@@ -585,7 +646,8 @@ function runMission(params){
       distRemaining = 0;
       rows.push({
         t: elapsedMin, weightKg, fuelKg, distRemaining,
-        tas: Math.round(tasChart), fuelFlowKgH, gs: Math.round(gs), note: 'Destination'
+        tas: tasUsed, fuelFlowKgH, gs: Math.round(gs),
+        note: tasCapped ? 'Destination — TAS capped at chart max' : 'Destination'
       });
       stopReason = 'arrived';
       break;
@@ -604,7 +666,8 @@ function runMission(params){
       distRemaining -= partDist;
       rows.push({
         t: elapsedMin, weightKg, fuelKg, distRemaining,
-        tas: Math.round(tasChart), fuelFlowKgH, gs: Math.round(gs), note: 'Reserve reached'
+        tas: tasUsed, fuelFlowKgH, gs: Math.round(gs),
+        note: tasCapped ? 'Reserve reached — TAS capped at chart max' : 'Reserve reached'
       });
       stopReason = 'reserve';
       break;
@@ -617,7 +680,8 @@ function runMission(params){
     distRemaining -= distThisStep;
     rows.push({
       t: elapsedMin, weightKg, fuelKg, distRemaining,
-      tas: Math.round(tasChart), fuelFlowKgH, gs: Math.round(gs), note: ''
+      tas: tasUsed, fuelFlowKgH, gs: Math.round(gs),
+      note: tasCapped ? 'TAS capped at chart max' : ''
     });
   }
 
@@ -660,8 +724,9 @@ function runPlanner(){
   const oat = parseFloat(document.getElementById('oat').value);
   const wind = parseFloat(document.getElementById('wind').value);
   const dist = parseFloat(document.getElementById('dist').value);
-  const wtKg = parseFloat(document.getElementById('wt-kg').value);
+  const zfwKg = parseFloat(document.getElementById('zfw-kg').value);
   const fuelKg = parseFloat(document.getElementById('fuel-kg').value);
+  const wtKg = zfwKg + fuelKg; // Total Takeoff Weight = ZFW + fuel -- the one weight the rest of this tool uses
   const maxGwtKg = parseFloat(document.getElementById('maxgwt-kg').value);
   const hoist = document.getElementById('eqHoist').checked;
   const tanks = document.getElementById('eqTanks').checked;
@@ -726,6 +791,8 @@ function runPlanner(){
 
   resultsDiv.style.display = 'block';
 }
+
+updateTotalWeight();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
