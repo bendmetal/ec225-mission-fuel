@@ -710,8 +710,11 @@ function runMission(params){
     // Combine both possible TAS-reduction reasons into one note fragment --
     // a row can in principle hit both (chart-max cap, then still too close
     // to MCP even at the capped speed), so state both rather than picking one.
+    // Note: tasCapped (chart-max cap) intentionally does NOT add a row note --
+    // Greg asked to stop surfacing that one in the burn-down table. The cap
+    // itself still runs exactly as before; only the label is gone. mcpCapped
+    // (FCOM 1.1 margin) still gets a note since Greg wants that one visible.
     const capReasons = [];
-    if (tasCapped) capReasons.push('TAS capped at chart max');
     if (mcpCapped) capReasons.push('TAS reduced for MCP margin (FCOM 1.1)');
     const capNote = capReasons.join(' + ');
 
