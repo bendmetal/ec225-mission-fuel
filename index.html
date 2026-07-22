@@ -475,6 +475,49 @@ function maxChartedTasFor(hp, oat, weight, requestedTas){
   return null; // nothing resolves at any TAS down to 0 -- genuinely outside the envelope
 }
 
+// Same per-figure AEO Max Continuous torque values used by ec225-cruise-torque
+// (RFM Section 10.2.A1 para 1.6), interpolated the same way as everything else.
+function lookupAeoMax(hp, oat){
+  const hb = bracket(hp, HP_LEVELS); if (!hb) return null;
+  function atHp(hpVal){
+    const oats = hpOats(hpVal);
+    const ob = bracket(oat, oats); if (!ob) return null;
+    const fLo = figFor(hpVal, ob.lo), fHi = figFor(hpVal, ob.hi);
+    const vLo = fLo.aeoMaxCont, vHi = fHi.aeoMaxCont;
+    if (vLo===null||vHi===null||vLo===undefined||vHi===undefined) return null;
+    return vLo + (vHi-vLo)*ob.frac;
+  }
+  const vLo = atHp(hb.lo), vHi = atHp(hb.hi);
+  if (vLo===null||vHi===null) return null;
+  return vLo + (vHi-vLo)*hb.frac;
+}
+
+// FCOM Section 1.1, Twin-Engine Level Flight: "The maximum range power setting
+// is obtained at approximately MCP minus 0.5 FLI" -- i.e. best-range cruise
+// should sit a small margin below Max Continuous Power, not right against it.
+// Greg specified ~2% torque as the practical value for that 0.5 FLI margin.
+// Table A's charted best-range TAS doesn't know about this margin -- it can
+// recommend a TAS whose torque lands right at (or above) MCP. Rather than
+// touch Table A itself, this steps DOWN from whatever TAS was already chosen
+// (post chart-max-cap) until torque clears MCP - MCP_MARGIN, using the same
+// column-by-column search as maxChartedTasFor(). Only engages when needed --
+// most missions have torque comfortably below MCP already and this returns
+// the TAS unchanged.
+const MCP_MARGIN_PCT = 2; // ~0.5 FLI per Greg, FCOM 1.1
+function marginSafeTasFor(hp, oat, weight, tas){
+  const aeoMax = lookupAeoMax(hp, oat);
+  if (aeoMax === null) return tas; // no MCP data at this Hp/OAT -- can't check, leave as-is
+  const target = aeoMax - MCP_MARGIN_PCT;
+  const [torque] = lookupTorqueFuel(hp, oat, weight, tas);
+  if (torque === null || torque <= target) return tas; // already clear of the margin, or unresolved (handled elsewhere)
+  for (let t = Math.floor(tas) - 1; t >= 0; t--){
+    const [tq, fu] = lookupTorqueFuel(hp, oat, weight, t);
+    if (fu === null) continue;
+    if (tq <= target) return t;
+  }
+  return null; // even the slowest charted TAS still exceeds MCP - margin at this weight/Hp/OAT
+}
+
 // Vy = 80 kt TAS at sea level, minus 1 kt per 1000 ft of pressure altitude (RFM Section 2, Vy definition)
 function vyAt(hp){ return 80 - (hp/1000); }
 
@@ -619,6 +662,27 @@ function runMission(params){
       }
       tasCapped = true;
     }
+    // FCOM 1.1: best-range power should sit ~0.5 FLI (~2% torque, per Greg)
+    // below MCP, not right against it. If the chart-recommended TAS (already
+    // adjusted above for Table B's own chart-max limit) still produces a
+    // torque within that margin of MCP, step down to the next slower charted
+    // TAS until clear. Runs AFTER the chart-max cap so the two never fight
+    // each other -- whichever constraint is more restrictive wins.
+    let mcpCapped = false;
+    const marginTas = marginSafeTasFor(hp, oat, weightKg, tasUsed);
+    if (marginTas === null){
+      stopReason = 'envelope';
+      break;
+    }
+    if (marginTas !== tasUsed){
+      tasUsed = marginTas;
+      [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
+      if (fuelFlowKgH === null){
+        stopReason = 'envelope';
+        break;
+      }
+      mcpCapped = true;
+    }
     // Optional-equipment correction applies only to the achieved airspeed
     // (torque and fuel are unaffected, same reasoning as ec225-cruise-torque),
     // and only when TAS >= Vy. equipTas is what the pilot would actually see
@@ -643,6 +707,14 @@ function runMission(params){
       reserveKg = fuelFlowKgH * (reserveMinutes / 60);
     }
 
+    // Combine both possible TAS-reduction reasons into one note fragment --
+    // a row can in principle hit both (chart-max cap, then still too close
+    // to MCP even at the capped speed), so state both rather than picking one.
+    const capReasons = [];
+    if (tasCapped) capReasons.push('TAS capped at chart max');
+    if (mcpCapped) capReasons.push('TAS reduced for MCP margin (FCOM 1.1)');
+    const capNote = capReasons.join(' + ');
+
     const distThisStep = gs * STEP_HR;
     const fuelThisStep = fuelFlowKgH * STEP_HR;
 
@@ -658,7 +730,7 @@ function runMission(params){
       rows.push({
         t: elapsedMin, weightKg, fuelKg, distRemaining,
         tas: Math.round(equipTas), fuelFlowKgH, gs: Math.round(gs),
-        note: tasCapped ? 'Destination — TAS capped at chart max' : 'Destination'
+        note: capNote ? ('Destination — ' + capNote) : 'Destination'
       });
       stopReason = 'arrived';
       break;
@@ -678,7 +750,7 @@ function runMission(params){
       rows.push({
         t: elapsedMin, weightKg, fuelKg, distRemaining,
         tas: Math.round(equipTas), fuelFlowKgH, gs: Math.round(gs),
-        note: tasCapped ? 'Reserve reached — TAS capped at chart max' : 'Reserve reached'
+        note: capNote ? ('Reserve reached — ' + capNote) : 'Reserve reached'
       });
       stopReason = 'reserve';
       break;
@@ -692,7 +764,7 @@ function runMission(params){
     rows.push({
       t: elapsedMin, weightKg, fuelKg, distRemaining,
       tas: Math.round(equipTas), fuelFlowKgH, gs: Math.round(gs),
-      note: tasCapped ? 'TAS capped at chart max' : ''
+      note: capNote
     });
   }
 
