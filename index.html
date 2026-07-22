@@ -584,11 +584,14 @@ function runMission(params){
   let reserveKg = null;
 
   for (let step = 0; step < MAX_STEPS; step++){
-    // lookupTAS's Table A already bakes the wind effect into its result (the
-    // RFM chart itself is read as "weight -> move horizontally for wind -> TAS"),
-    // so this value is already a wind-corrected ground speed equivalent, not a
-    // still-air TAS. Torque/fuel are looked up against this same value, per the
-    // book's own Fig n/2 method (weight + this TAS -> torque/fuel).
+    // Table A gives the RFM's recommended best-range TAS for this weight/wind
+    // -- it adjusts the recommended AIRSPEED slightly to fly faster into a
+    // headwind or slower with a tailwind for best range, but the number it
+    // returns is still true airspeed through the air, not ground speed. Wind
+    // has NOT been subtracted/added yet at this point. Torque/fuel are looked
+    // up against this same TAS, per the book's own Fig n/2 method (weight +
+    // this TAS -> torque/fuel), since those depend on airspeed through the
+    // air, not speed over the ground.
     const tasChart = lookupTAS(hp, oat, weightKg, wind);
     if (tasChart === null){
       stopReason = 'envelope';
@@ -616,11 +619,16 @@ function runMission(params){
       }
       tasCapped = true;
     }
-    // Optional-equipment correction applies only to the displayed/achieved
-    // airspeed (torque and fuel are unaffected, same reasoning as
-    // ec225-cruise-torque), and only when TAS >= Vy. Since tasUsed already
-    // includes wind, the corrected value here is ground speed directly.
-    const gs = (equipPct > 0 && tasUsed >= vy) ? tasUsed * (1 - equipPct/100) : tasUsed;
+    // Optional-equipment correction applies only to the achieved airspeed
+    // (torque and fuel are unaffected, same reasoning as ec225-cruise-torque),
+    // and only when TAS >= Vy -- applied to TAS BEFORE adding wind, since the
+    // equipment drag penalty acts on airspeed through the air, not over the
+    // ground. Wind is added on top (headwind entered as negative, tailwind
+    // positive) to convert that airspeed into the actual ground speed used
+    // for distance-covered math -- this is the step that was previously
+    // missing, which made a headwind barely move the burn-down table.
+    const equipTas = (equipPct > 0 && tasUsed >= vy) ? tasUsed * (1 - equipPct/100) : tasUsed;
+    const gs = equipTas + wind;
     if (gs <= 0){
       stopReason = 'nogs';
       break;
