@@ -840,7 +840,7 @@ function runPlanner(){
   const lastRow = rows[rows.length-1];
 
   if (stopReason === 'envelope'){
-    banner.innerHTML = '<div class="banner err">Simulation stopped: a point during this flight (Hp/OAT/weight combination) falls outside the charted Level Flight Performance envelope. Verify against the source charts &mdash; no further burn-down computed past this point.</div>';
+    banner.innerHTML = '<div class="banner err">Simulation stopped: at this point in the flight, the Hp/OAT/weight combination has no published best-range TAS data (Fig n/1 doesn\'t plot a curve there for at least one of the two charts being interpolated between). This is usually a real limit of the aircraft\'s charted envelope at a heavy/hot/high combination, not a computation error &mdash; verify against the source charts (' + lastRow.weightKg.toFixed(0) + ' kg at the point of failure). No further burn-down computed past this point.</div>';
   } else if (stopReason === 'nogs'){
     banner.innerHTML = '<div class="banner err">Ground speed is zero or negative (headwind exceeds TAS) &mdash; this aircraft would not make forward progress under these conditions.</div>';
   } else if (stopReason === 'reserve'){
