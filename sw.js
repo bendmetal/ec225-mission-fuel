@@ -1,7 +1,7 @@
 // EC225 Mission Fuel Planner - Service Worker
 // Caches the app for full offline use after first load
 
-const CACHE_NAME = 'ec225-mission-fuel-v11';
+const CACHE_NAME = 'ec225-mission-fuel-v12';
 const FILES_TO_CACHE = [
   './',
   './index.html'
