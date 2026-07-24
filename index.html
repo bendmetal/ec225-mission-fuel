@@ -122,6 +122,8 @@
   table.burn-table td:first-child, table.burn-table th:first-child { text-align: left; }
   table.burn-table tr.milestone td { color: #c7d2fe; font-weight: 600; background: rgba(129,140,248,0.08); }
   .time-note { font-size: 9.5px; font-weight: 600; color: #a5b4fc; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 1px; }
+  .row-asterisk { color: #fbbf24; font-weight: 700; margin-left: 2px; }
+  .burn-footnote { font-size: 10.5px; color: #7d8590; margin-top: 8px; line-height: 1.5; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
   .info {
@@ -340,6 +342,7 @@
           <tbody id="burn-tbody"></tbody>
         </table>
       </div>
+      <div class="burn-footnote" id="burn-footnote" style="display:none;"></div>
     </div>
   </div>
 
@@ -645,7 +648,7 @@ function runMission(params){
   // Row 0: takeoff point
   rows.push({
     t: 0, weightKg, fuelKg, distRemaining,
-    tas: null, fuelFlowKgH: null, gs: null, note: 'Takeoff'
+    tas: null, fuelFlowKgH: null, gs: null, note: 'Takeoff', flagKind: null
   });
 
   let stopReason = null;
@@ -756,17 +759,17 @@ function runMission(params){
       reserveKg = fuelFlowKgH * (reserveMinutes / 60);
     }
 
-    // Combine both possible TAS-reduction reasons into one note fragment --
-    // a row can in principle hit both (chart-max cap, then still too close
-    // to MCP even at the capped speed), so state both rather than picking one.
-    // Note: tasCapped (chart-max cap) intentionally does NOT add a row note --
-    // Greg asked to stop surfacing that one in the burn-down table. The cap
-    // itself still runs exactly as before; only the label is gone. mcpCapped
-    // (FCOM 1.1 margin) still gets a note since Greg wants that one visible.
-    const capReasons = [];
-    if (tableADirect) capReasons.push('No Fig n/1 data at this weight -- fastest TAS from Fig n/2 within MCP margin, not a best-range recommendation');
-    if (mcpCapped) capReasons.push('TAS reduced for MCP margin (FCOM 1.1)');
-    const capNote = capReasons.join(' + ');
+    // tasCapped (chart-max cap) intentionally adds no row flag -- Greg asked
+    // to stop surfacing that one in the burn-down table; the cap itself still
+    // runs exactly as before, only the label is gone. mcpCapped and
+    // tableADirect DO get flagged, but rather than spelling the reason out on
+    // every row (cluttering the table), flagged rows just get a small
+    // asterisk next to the time -- the actual explanation is shown once, in a
+    // footnote below the table (added 2026-07-24, per Greg's request).
+    // flagKind distinguishes the two reasons so the footnote can mention
+    // whichever ones actually occurred in this mission (tableADirect implies
+    // mcpCapped is moot for that row, so at most one applies per row).
+    const flagKind = tableADirect ? 'direct' : (mcpCapped ? 'mcp' : null);
 
     const distThisStep = gs * STEP_HR;
     const fuelThisStep = fuelFlowKgH * STEP_HR;
@@ -783,7 +786,7 @@ function runMission(params){
       rows.push({
         t: elapsedMin, weightKg, fuelKg, distRemaining,
         tas: Math.round(equipTas), fuelFlowKgH, gs: Math.round(gs),
-        note: capNote ? ('Destination — ' + capNote) : 'Destination'
+        note: 'Destination', flagKind
       });
       stopReason = 'arrived';
       break;
@@ -803,7 +806,7 @@ function runMission(params){
       rows.push({
         t: elapsedMin, weightKg, fuelKg, distRemaining,
         tas: Math.round(equipTas), fuelFlowKgH, gs: Math.round(gs),
-        note: capNote ? ('Reserve reached — ' + capNote) : 'Reserve reached'
+        note: 'Reserve reached', flagKind
       });
       stopReason = 'reserve';
       break;
@@ -817,7 +820,7 @@ function runMission(params){
     rows.push({
       t: elapsedMin, weightKg, fuelKg, distRemaining,
       tas: Math.round(equipTas), fuelFlowKgH, gs: Math.round(gs),
-      note: capNote
+      note: '', flagKind
     });
   }
 
@@ -910,12 +913,19 @@ function runPlanner(){
 
   const tbody = document.getElementById('burn-tbody');
   tbody.innerHTML = '';
+  let hasMcpFlag = false, hasDirectFlag = false;
   for (const r of rows){
     const tr = document.createElement('tr');
     if (r.note) tr.classList.add('milestone');
     const noteLine = r.note ? '<div class="time-note">' + r.note + '</div>' : '';
+    // Flagged rows (MCP margin or Table-A-missing fallback) get a small
+    // asterisk next to the time instead of spelling the reason out on every
+    // row -- the explanation is shown once in the footnote below the table.
+    const asterisk = r.flagKind ? '<span class="row-asterisk">*</span>' : '';
+    if (r.flagKind === 'mcp') hasMcpFlag = true;
+    if (r.flagKind === 'direct') hasDirectFlag = true;
     tr.innerHTML =
-      '<td>' + fmtTime(r.t) + noteLine + '</td>' +
+      '<td>' + fmtTime(r.t) + asterisk + noteLine + '</td>' +
       '<td>' + (r.tas!==null ? r.tas : '&mdash;') + '</td>' +
       '<td>' + (r.gs!==null ? r.gs : '&mdash;') + '</td>' +
       '<td>' + Math.round(r.weightKg * KG_TO_LB).toLocaleString() + '</td>' +
@@ -924,6 +934,13 @@ function runPlanner(){
       '<td>' + Math.round(r.distRemaining).toLocaleString() + '</td>';
     tbody.appendChild(tr);
   }
+
+  const footnoteEl = document.getElementById('burn-footnote');
+  const footnoteLines = [];
+  if (hasMcpFlag) footnoteLines.push('* TAS reduced to keep torque at least ' + MCP_MARGIN_PCT + '% below AEO Max Continuous (FCOM 1.1, best-range power &asymp; MCP &minus; 0.5 FLI).');
+  if (hasDirectFlag) footnoteLines.push('* No Fig n/1 (Table A) data at this weight/Hp/OAT -- fastest TAS from Fig n/2 (Table B) within the MCP margin, not the book\'s best-range recommendation.');
+  footnoteEl.innerHTML = footnoteLines.join('<br>');
+  footnoteEl.style.display = footnoteLines.length ? 'block' : 'none';
 
   resultsDiv.style.display = 'block';
 }
