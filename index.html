@@ -44,6 +44,7 @@
   }
   .section-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: #e6edf3; }
   .section-sub { font-size: 11px; color: #7d8590; margin-bottom: 14px; }
+  .subsection-divider { border-top: 1px solid #1f2937; margin: 16px 0 4px; }
 
   .field { margin-bottom: 14px; }
   .field label { display:block; font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
@@ -53,6 +54,16 @@
     color: #e6edf3; font-size: 16px; padding: 10px 6px; text-align: center;
     -moz-appearance: textfield; min-width: 0;
   }
+
+  /* Short numeric fields (Hp, OAT, wind, elevation, ROC, etc.) don't need to
+     stretch the full width of the app for a 4-5 digit number -- group them
+     in a row and give the stepper itself a fixed max-width so the buttons
+     sit close to the input instead of spread across the whole card. Falls
+     back to full-width stacking automatically on very narrow screens via
+     flex-wrap, so nothing breaks on a small iPhone. */
+  .field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .field-row .field { flex: 1 1 140px; min-width: 130px; margin-bottom: 14px; }
+  .field-row .field .stepper { max-width: 220px; }
   .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin:0; }
   .stepper input.emphasis { font-size: 19px; font-weight: 600; }
   .stepper input.de-emphasis { font-size: 13px; color: #9ca3af; }
@@ -83,6 +94,12 @@
   select {
     width: 100%; background: #0a0e14; border: 1px solid #374151; border-radius: 8px;
     color: #e6edf3; font-size: 15px; padding: 10px 8px;
+  }
+
+  .field input[type=text] {
+    width: 100%; background: #0a0e14; border: 1px solid #374151; border-radius: 8px;
+    color: #e6edf3; font-size: 16px; padding: 10px 8px; text-align: center;
+    text-transform: uppercase; letter-spacing: 1px;
   }
 
   .btn-calc {
@@ -156,6 +173,7 @@
   }
   .refresh-link:active { background: #1f2937; }
 
+
 </style>
 </head>
 <body>
@@ -199,48 +217,86 @@
     </div>
 
     <div class="section-sub" id="maxgwt-note"></div>
-  </div>
 
-  <div class="section">
-    <div class="section-title">Optional Equipment</div>
+    <div class="subsection-divider"></div>
+
+    <div class="section-title" style="margin-top:14px;">Optional Equipment</div>
     <div class="section-sub">Applies -3% each to TAS at each 15-minute step (only where TAS &ge; V<sub>y</sub>), per RFM Section 10.0. Torque and fuel flow are unaffected (no correction given for those in the book).</div>
     <div class="equip-row"><input type="checkbox" id="eqHoist"><label for="eqHoist">Single/dual hoist installed</label></div>
     <div class="equip-row"><input type="checkbox" id="eqTanks"><label for="eqTanks">Forward external fuel tanks / luggage cases installed</label></div>
   </div>
 
   <div class="section">
+    <div class="section-title">Departure Airfield</div>
+    <div class="section-sub">Used to size a single climb segment from field elevation up to cruise altitude &mdash; a simplified average-climb estimate, not a modeled climb profile. Inserted as the first row of the burn-down below, ahead of the 15-minute cruise steps.</div>
+    <div class="field" style="max-width:180px;">
+      <label>Identifier</label>
+      <input type="text" id="dep-id" maxlength="4" placeholder="e.g. KABC" value="">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Elevation (ft)</label>
+        <div class="stepper">
+          <button onclick="step('dep-elev',-100)">&minus;</button>
+          <input type="number" id="dep-elev" value="0" step="100">
+          <button onclick="step('dep-elev',100)">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>OAT (&deg;C)</label>
+        <div class="stepper">
+          <button onclick="step('dep-oat',-5)">&minus;</button>
+          <input type="number" id="dep-oat" value="15" step="5">
+          <button onclick="step('dep-oat',5)">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Rate of Climb (ft/min)</label>
+        <div class="stepper">
+          <button onclick="stepRoc(-100)">&minus;</button>
+          <input type="number" id="roc" value="500" step="100" min="500" max="1500" oninput="clampRoc()">
+          <button onclick="stepRoc(100)">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="section-sub" style="margin-top:10px; margin-bottom:0;">TAS reduction during climb scales linearly with ROC: 10% off best-range TAS at 500 ft/min, up to 30% off at 1,500 ft/min. Fuel flow for the climb segment is looked up at the midpoint altitude/OAT between field elevation and cruise altitude, at departure weight.</div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Cruise Conditions</div>
     <div class="section-sub">Same Section 10.2.A1 data as the Cruise Torque &amp; Fuel Burn tool &mdash; used here to re-look-up TAS and fuel flow every 15 minutes as weight burns down.</div>
-    <div class="field">
-      <label>Pressure Altitude (ft)</label>
-      <div class="stepper">
-        <button onclick="step('hp',-500)">&minus;</button>
-        <input type="number" id="hp" value="6000" step="500">
-        <button onclick="step('hp',500)">+</button>
+    <div class="field-row">
+      <div class="field">
+        <label>Pressure Altitude (ft)</label>
+        <div class="stepper">
+          <button onclick="step('hp',-500)">&minus;</button>
+          <input type="number" id="hp" value="6000" step="500">
+          <button onclick="step('hp',500)">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>OAT (&deg;C)</label>
+        <div class="stepper">
+          <button onclick="step('oat',-5)">&minus;</button>
+          <input type="number" id="oat" value="15" step="5">
+          <button onclick="step('oat',5)">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Total Route Distance (NM)</label>
+        <div class="stepper">
+          <button onclick="step('dist',-25)">&minus;</button>
+          <input type="number" id="dist" value="300" step="25">
+          <button onclick="step('dist',25)">+</button>
+        </div>
       </div>
     </div>
-    <div class="field">
-      <label>OAT (&deg;C)</label>
-      <div class="stepper">
-        <button onclick="step('oat',-5)">&minus;</button>
-        <input type="number" id="oat" value="15" step="5">
-        <button onclick="step('oat',5)">+</button>
-      </div>
-    </div>
-    <div class="field">
+    <div class="field" style="max-width:220px;">
       <label>Flight Level Wind (kt) &middot; &minus; headwind / + tailwind</label>
       <div class="stepper">
         <button onclick="step('wind',-5)">&minus;</button>
         <input type="number" id="wind" value="0" step="5">
         <button onclick="step('wind',5)">+</button>
-      </div>
-    </div>
-    <div class="field">
-      <label>Total Route Distance (NM)</label>
-      <div class="stepper">
-        <button onclick="step('dist',-25)">&minus;</button>
-        <input type="number" id="dist" value="300" step="25">
-        <button onclick="step('dist',25)">+</button>
       </div>
     </div>
   </div>
@@ -270,7 +326,6 @@
         </div>
       </div>
     </div>
-
 
     <div class="field">
       <label>Fuel on Board at Takeoff</label>
@@ -628,10 +683,126 @@ function updateTotalWeight(){
 // Every lookup uses the exact same strict bilinear interpolation as
 // ec225-cruise-torque -- a null result (point outside the charted envelope)
 // halts the simulation immediately rather than guessing.
+// --- Climb segment -------------------------------------------------------
+// Deliberately NOT a modeled climb profile (no rate-of-climb chart, no
+// changing airspeed/fuel flow through the climb) -- that was the earlier
+// beta attempt (Fig 9 Weight Index + Fig 11b R/C at Vy) and Greg found it too
+// complex for what he actually needed. This version treats the whole climb
+// as one representative average segment:
+//   - Climb altitude gap = cruise Hp minus departure field elevation.
+//   - Climb TAS = cruise Table A best-range TAS (at cruise Hp/OAT/departure
+//     weight/wind), reduced by a percentage that scales LINEARLY with the
+//     selected rate of climb: 10% off at 500 ft/min, up to 30% off at
+//     1,500 ft/min. (500->10%, 1000->20%, 1500->30%, straight line between.)
+//   - Midpoint altitude/OAT = halfway (by altitude) between the departure
+//     field and cruise altitude, OAT linearly interpolated between departure
+//     OAT (at field elevation) and cruise OAT (at cruise altitude) the same
+//     way -- there's no full atmospheric model here, just a straight-line
+//     interpolation between the two known points.
+//   - Fuel flow for the whole climb segment is looked up ONCE, from Table B,
+//     at that midpoint Hp/OAT, departure weight (unchanged for the whole
+//     climb, same simplification the rest of this tool already makes for
+//     each 15-minute step), and the climb TAS computed above.
+//   - Climb time = altitude gap / ROC. Climb distance = climb TAS (or GS, if
+//     wind is entered) x climb time. Climb fuel = fuel flow x climb time.
+// Returns null if either the cruise TAS lookup or the midpoint fuel-flow
+// lookup falls outside the charted envelope -- same "fail honestly, don't
+// guess" policy as the rest of the tool.
+function climbTasReductionPct(roc){
+  // Linear: 10% at 500 ft/min, 30% at 1500 ft/min. Clamp inputs outside the
+  // supported window to the nearest end rather than extrapolating further.
+  const r = Math.max(500, Math.min(1500, roc));
+  return 10 + (r - 500) * (30 - 10) / (1500 - 500);
+}
+
+// Table B is built entirely from level-flight (cruise) data -- every
+// torque/fuel-flow pair in it answers "if the aircraft were in steady level
+// flight at this weight and this TAS, what's the burn?" During an actual
+// climb, a chunk of engine power goes into gaining altitude rather than
+// forward speed, so looking up fuel flow at the (slower) climb TAS as if it
+// were a level-flight cruise speed understates the real fuel burn -- Greg
+// caught this directly ("I would not use the indicated air speed for the
+// fuel burn... the fuel burn that you have indicated would be if the
+// aircraft was in a level flight profile"). His fix: assume the aircraft is
+// working near its climb power limit instead -- 1% below AEO Max Continuous
+// (same MCP_MARGIN_PCT already used elsewhere in this tool) -- and use
+// WHATEVER TAS/fuel-flow pair Table B has at that torque, rather than the
+// TAS the sliding-scale reduction produced. That reduced TAS still drives
+// the climb TIME/DISTANCE shown in the table (Greg's instruction: "the true
+// airspeed reduction would only be for the table to show the time to climb
+// ... but the fuel burn would be the 1% minus"), so the displayed climb TAS
+// and the TAS actually used for the fuel lookup are allowed to diverge.
+// Table B's torque column is monotonically increasing with TAS (more speed
+// costs more power), so walking TAS upward from 0 and taking the last point
+// that still clears the target torque finds the fastest -- i.e. most
+// torque-decisive -- climb condition at that margin.
+function climbFuelAtTargetTorque(hp, oat, weight){
+  const aeoMax = lookupAeoMax(hp, oat);
+  if (aeoMax === null) return null;
+  const target = aeoMax - MCP_MARGIN_PCT;
+  let best = null;
+  for (let t = 0; t <= 200; t++){
+    const [tq, fu] = lookupTorqueFuel(hp, oat, weight, t);
+    if (fu === null) continue;
+    if (tq <= target) best = { tas: t, torque: tq, fuelFlowKgH: fu };
+    else break; // torque only increases with TAS -- first miss ends the search
+  }
+  return best; // null if not even the slowest charted TAS clears the margin
+}
+
+function computeClimbSegment(params){
+  const {
+    hp, oat, wind, depElevFt, depOatC, roc,
+    startWeightKg, startFuelKg, distanceNm
+  } = params;
+
+  const climbGapFt = hp - depElevFt;
+  if (climbGapFt <= 0){
+    // Cruise altitude at or below field elevation -- no climb segment needed.
+    return { skip: true };
+  }
+
+  // Cruise best-range TAS at departure weight -- the baseline the climb
+  // speed reduction is applied against, per Greg's instruction to reuse the
+  // existing Table A lookup rather than add a new one. This drives the
+  // DISPLAYED climb TAS and therefore climb time/distance only -- see
+  // climbFuelAtTargetTorque() above for why fuel burn is computed
+  // separately, from torque, not from this reduced TAS.
+  const cruiseTas = lookupTAS(hp, oat, startWeightKg, wind);
+  if (cruiseTas === null) return { error: 'cruise-tas' };
+
+  const reductionPct = climbTasReductionPct(roc);
+  const climbTas = cruiseTas * (1 - reductionPct/100);
+
+  // Midpoint altitude/OAT for the fuel-flow lookup -- straight-line halfway
+  // point between the two known ends (field elevation/OAT and cruise
+  // Hp/OAT), not a modeled lapse rate.
+  const midHp = (depElevFt + hp) / 2;
+  const midOat = (depOatC + oat) / 2;
+
+  const climbPower = climbFuelAtTargetTorque(midHp, midOat, startWeightKg);
+  if (climbPower === null) return { error: 'midpoint-fuel' };
+  const { torque, fuelFlowKgH } = climbPower;
+
+  const climbTimeHr = climbGapFt / roc / 60; // roc in ft/min -> hours
+  const climbTimeMin = climbTimeHr * 60;
+  const climbGs = climbTas + wind;
+  const climbDistNm = climbGs * climbTimeHr;
+  const climbFuelKg = fuelFlowKgH * climbTimeHr;
+
+  return {
+    skip: false, error: null,
+    climbGapFt, cruiseTas, reductionPct, climbTas: Math.round(climbTas),
+    midHp, midOat, torque, fuelFlowKgH, climbPowerTas: climbPower.tas,
+    climbTimeMin, climbGs: Math.round(climbGs), climbDistNm, climbFuelKg
+  };
+}
+
 function runMission(params){
   const {
     hp, oat, wind, distanceNm, startWeightKg, startFuelKg,
-    reserveMinutes, maxGwtKg, hoist, tanks
+    reserveMinutes, maxGwtKg, hoist, tanks,
+    depElevFt, depOatC, roc
   } = params;
 
   const STEP_HR = 0.25; // 15 minutes
@@ -654,6 +825,57 @@ function runMission(params){
   let stopReason = null;
   const MAX_STEPS = 4 * 24; // safety cap: 24 hours of endurance, way beyond any realistic mission
   let reserveKg = null;
+
+  // --- Climb segment ----------------------------------------------------
+  // Inserted as its own row ahead of the 15-minute cruise steps, using the
+  // simplified average-climb approach in computeClimbSegment() above. If the
+  // climb segment can't be computed (cruise TAS or midpoint fuel flow falls
+  // outside the charted envelope), the whole mission stops here rather than
+  // silently skipping the climb -- same honest-failure policy as every other
+  // lookup in this tool. If cruise altitude is at or below field elevation,
+  // the climb segment is skipped entirely (no climb needed) and the mission
+  // proceeds straight into the normal 15-minute loop, unchanged from
+  // production behavior.
+  let climbInfo = null;
+  if (typeof depElevFt === 'number' && !isNaN(depElevFt)){
+    const climb = computeClimbSegment({
+      hp, oat, wind, depElevFt, depOatC, roc,
+      startWeightKg: weightKg, startFuelKg: fuelKg, distanceNm: distRemaining
+    });
+    if (climb.error){
+      stopReason = climb.error === 'cruise-tas' ? 'climb-envelope' : 'climb-envelope';
+      return { rows, stopReason, overMax, reserveKg, climbInfo: null };
+    }
+    if (!climb.skip){
+      climbInfo = climb;
+      const distThisClimb = climb.climbDistNm;
+      if (distThisClimb >= distRemaining){
+        // Destination reached during the climb itself -- prorate.
+        const frac = distRemaining / distThisClimb;
+        const partFuel = climb.climbFuelKg * frac;
+        const partMin = climb.climbTimeMin * frac;
+        weightKg -= partFuel;
+        fuelKg -= partFuel;
+        elapsedMin += partMin;
+        distRemaining = 0;
+        rows.push({
+          t: elapsedMin, weightKg, fuelKg, distRemaining,
+          tas: climb.climbTas, fuelFlowKgH: climb.fuelFlowKgH, gs: climb.climbGs,
+          note: 'Destination', flagKind: null, isClimb: true
+        });
+        return { rows, stopReason: 'arrived', overMax, reserveKg, climbInfo };
+      }
+      weightKg -= climb.climbFuelKg;
+      fuelKg -= climb.climbFuelKg;
+      elapsedMin += climb.climbTimeMin;
+      distRemaining -= distThisClimb;
+      rows.push({
+        t: elapsedMin, weightKg, fuelKg, distRemaining,
+        tas: climb.climbTas, fuelFlowKgH: climb.fuelFlowKgH, gs: climb.climbGs,
+        note: 'Top of Climb', flagKind: null, isClimb: true
+      });
+    }
+  }
 
   for (let step = 0; step < MAX_STEPS; step++){
     // Table A gives the RFM's recommended best-range TAS for this weight/wind
@@ -838,6 +1060,26 @@ function step(id, delta){
   el.value = (parseFloat(el.value)||0) + delta;
 }
 
+// Rate of Climb stepper: +/- buttons move in 100 ft/min increments, but the
+// field also accepts direct typed entry anywhere in 500-1500 ft/min (Greg's
+// spec). Clamp on both paths so a stray step past either end, or a typed
+// value outside the range, snaps back to the nearest valid bound rather than
+// silently accepting an ROC the climb math below was never designed to
+// handle (the linear TAS-reduction scale only extrapolates sensibly across
+// this specific window).
+function clampRoc(){
+  const el = document.getElementById('roc');
+  let v = parseFloat(el.value);
+  if (isNaN(v)) v = 500;
+  v = Math.max(500, Math.min(1500, v));
+  el.value = v;
+}
+function stepRoc(delta){
+  const el = document.getElementById('roc');
+  el.value = (parseFloat(el.value)||500) + delta;
+  clampRoc();
+}
+
 function setCategory(c){
   category = c;
   document.getElementById('catA-btn').classList.toggle('active', c==='A');
@@ -871,6 +1113,10 @@ function runPlanner(){
   const tanks = document.getElementById('eqTanks').checked;
   const reserveMinutes = rules === 'IFR' ? 30 : 20;
 
+  const depElevFt = parseFloat(document.getElementById('dep-elev').value);
+  const depOatC = parseFloat(document.getElementById('dep-oat').value);
+  const roc = parseFloat(document.getElementById('roc').value);
+
   const resultsDiv = document.getElementById('results');
   const banner = document.getElementById('result-banner');
   const maxgwtNote = document.getElementById('maxgwt-note');
@@ -886,13 +1132,16 @@ function runPlanner(){
   const result = runMission({
     hp, oat, wind, distanceNm: dist,
     startWeightKg: wtKg, startFuelKg: fuelKg,
-    reserveMinutes, maxGwtKg, hoist, tanks
+    reserveMinutes, maxGwtKg, hoist, tanks,
+    depElevFt, depOatC, roc
   });
 
   const { rows, stopReason, reserveKg } = result;
   const lastRow = rows[rows.length-1];
 
-  if (stopReason === 'envelope'){
+  if (stopReason === 'climb-envelope'){
+    banner.innerHTML = '<div class="banner err">Simulation stopped in the climb segment: the cruise best-range TAS or the midpoint Hp/OAT/weight/TAS combination has no published data for this climb (departure elevation ' + Math.round(depElevFt).toLocaleString() + ' ft to cruise ' + Math.round(hp).toLocaleString() + ' ft). Verify against the source charts &mdash; no burn-down computed.</div>';
+  } else if (stopReason === 'envelope'){
     banner.innerHTML = '<div class="banner err">Simulation stopped: at this point in the flight, the Hp/OAT/weight combination has no published best-range TAS data (Fig n/1 doesn\'t plot a curve there for at least one of the two charts being interpolated between). This is usually a real limit of the aircraft\'s charted envelope at a heavy/hot/high combination, not a computation error &mdash; verify against the source charts (' + lastRow.weightKg.toFixed(0) + ' kg at the point of failure). No further burn-down computed past this point.</div>';
   } else if (stopReason === 'nogs'){
     banner.innerHTML = '<div class="banner err">Ground speed is zero or negative (headwind exceeds TAS) &mdash; this aircraft would not make forward progress under these conditions.</div>';
@@ -937,6 +1186,10 @@ function runPlanner(){
 
   const footnoteEl = document.getElementById('burn-footnote');
   const footnoteLines = [];
+  if (result.climbInfo){
+    const ci = result.climbInfo;
+    footnoteLines.push('Climb segment: ' + Math.round(ci.climbGapFt).toLocaleString() + ' ft gap at ' + Math.round(roc).toLocaleString() + ' ft/min &mdash; TAS reduced ' + ci.reductionPct.toFixed(0) + '% off cruise best-range (' + Math.round(ci.cruiseTas) + ' kt) to ' + ci.climbTas + ' kt for climb time/distance. Fuel flow is NOT looked up at that reduced TAS (Table B is a level-flight chart, and a climbing aircraft burns more than level flight at the same airspeed) &mdash; instead it targets ' + MCP_MARGIN_PCT + '% below AEO Max Continuous at midpoint Hp ' + Math.round(ci.midHp).toLocaleString() + ' ft / OAT ' + ci.midOat.toFixed(0) + '&deg;C, using whichever charted TAS (' + ci.climbPowerTas + ' kt) Table B pairs with that torque.');
+  }
   if (hasMcpFlag) footnoteLines.push('* TAS reduced to keep torque at least ' + MCP_MARGIN_PCT + '% below AEO Max Continuous (FCOM 1.1, best-range power &asymp; MCP &minus; 0.5 FLI).');
   if (hasDirectFlag) footnoteLines.push('* No Fig n/1 (Table A) data at this weight/Hp/OAT -- fastest TAS from Fig n/2 (Table B) within the MCP margin, not the book\'s best-range recommendation.');
   footnoteEl.innerHTML = footnoteLines.join('<br>');
