@@ -495,15 +495,16 @@ function lookupAeoMax(hp, oat){
 // FCOM Section 1.1, Twin-Engine Level Flight: "The maximum range power setting
 // is obtained at approximately MCP minus 0.5 FLI" -- i.e. best-range cruise
 // should sit a small margin below Max Continuous Power, not right against it.
-// Greg specified ~2% torque as the practical value for that 0.5 FLI margin.
-// Table A's charted best-range TAS doesn't know about this margin -- it can
-// recommend a TAS whose torque lands right at (or above) MCP. Rather than
-// touch Table A itself, this steps DOWN from whatever TAS was already chosen
-// (post chart-max-cap) until torque clears MCP - MCP_MARGIN, using the same
-// column-by-column search as maxChartedTasFor(). Only engages when needed --
-// most missions have torque comfortably below MCP already and this returns
-// the TAS unchanged.
-const MCP_MARGIN_PCT = 2; // ~0.5 FLI per Greg, FCOM 1.1
+// Greg specified 1% torque as the practical value for that 0.5 FLI margin
+// (updated 2026-07-24 from an initial 2%; same constant shared with
+// ec225-cruise-torque). Table A's charted best-range TAS doesn't know about
+// this margin -- it can recommend a TAS whose torque lands right at (or
+// above) MCP. Rather than touch Table A itself, this steps DOWN from whatever
+// TAS was already chosen (post chart-max-cap) until torque clears
+// MCP - MCP_MARGIN, using the same column-by-column search as
+// maxChartedTasFor(). Only engages when needed -- most missions have torque
+// comfortably below MCP already and this returns the TAS unchanged.
+const MCP_MARGIN_PCT = 1; // ~0.5 FLI per Greg, FCOM 1.1
 function marginSafeTasFor(hp, oat, weight, tas){
   const aeoMax = lookupAeoMax(hp, oat);
   if (aeoMax === null) return tas; // no MCP data at this Hp/OAT -- can't check, leave as-is
@@ -516,6 +517,31 @@ function marginSafeTasFor(hp, oat, weight, tas){
     if (tq <= target) return t;
   }
   return null; // even the slowest charted TAS still exceeds MCP - margin at this weight/Hp/OAT
+}
+
+// Table A occasionally has NO data at all for a queried weight/Hp/OAT -- not
+// just a slow-TAS chart-max limit, but a genuine hole where the underlying
+// chart runs off its own plotted edge (e.g. 11,000 kg at Hp 9,000/OAT 30C,
+// found 2026-07-24 -- Greg confirmed that weight is too far off Fig n/1's
+// chart to trace a best-range TAS at all, even though Fig n/2 (Table B) still
+// has real torque/fuel data at that weight for a few lower TAS values).
+// Rather than halt the mission outright, fall back to Table B directly: pick
+// the fastest charted TAS whose torque is still at least MCP_MARGIN_PCT below
+// AEO Max Continuous. This is NOT the book's "best-range" recommendation
+// (Table A never gets consulted here) -- it's a "fastest sustainable"
+// fallback for the narrow case where Table A itself has nothing to offer.
+// Only used when lookupTAS() returns null; every other step still goes
+// through Table A as normal.
+function tasFromTableBDirect(hp, oat, weight){
+  const aeoMax = lookupAeoMax(hp, oat);
+  if (aeoMax === null) return null; // no MCP data either -- nothing to fall back on
+  const target = aeoMax - MCP_MARGIN_PCT;
+  for (let t = 200; t >= 0; t--){
+    const [tq, fu] = lookupTorqueFuel(hp, oat, weight, t);
+    if (fu === null) continue;
+    if (tq <= target) return t;
+  }
+  return null; // Table B has data here but every charted TAS exceeds the margin
 }
 
 // Vy = 80 kt TAS at sea level, minus 1 kt per 1000 ft of pressure altitude (RFM Section 2, Vy definition)
@@ -636,52 +662,75 @@ function runMission(params){
     // this TAS -> torque/fuel), since those depend on airspeed through the
     // air, not speed over the ground.
     const tasChart = lookupTAS(hp, oat, weightKg, wind);
+    // Table A occasionally has NO data at all at this weight/Hp/OAT -- the
+    // chart itself runs off its own plotted edge (e.g. 11,000 kg at Hp
+    // 9,000/OAT 30C, found 2026-07-24 -- Greg confirmed that weight is too
+    // far off Fig n/1's chart to trace a best-range TAS at all). Rather than
+    // halt the mission there, fall back to Table B directly: fastest charted
+    // TAS whose torque still clears the MCP margin. This is NOT the book's
+    // best-range recommendation (Table A never consulted for this step) --
+    // it's a "fastest sustainable" fallback, flagged on the row as such.
+    let tasUsed, torque, fuelFlowKgH, tasCapped = false, tableADirect = false;
     if (tasChart === null){
-      stopReason = 'envelope';
-      break;
-    }
-    // Table A (economic cruise TAS) can recommend a speed Table B has no
-    // torque/fuel data for at this same hp/OAT/weight -- heavy + hot + high
-    // reaches the torque limit before the chart's higher-TAS columns even
-    // exist. Rather than fail the whole mission there, cap at the fastest
-    // TAS Table B actually supports at this point and flag it on the row.
-    let tasUsed = Math.round(tasChart);
-    let [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
-    let tasCapped = false;
-    if (fuelFlowKgH === null){
-      const capped = maxChartedTasFor(hp, oat, weightKg, tasUsed);
-      if (capped === null){
+      const directTas = tasFromTableBDirect(hp, oat, weightKg);
+      if (directTas === null){
         stopReason = 'envelope';
         break;
       }
-      tasUsed = capped;
+      tasUsed = directTas;
       [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
       if (fuelFlowKgH === null){
         stopReason = 'envelope';
         break;
       }
-      tasCapped = true;
+      tableADirect = true;
+    } else {
+      // Table A (economic cruise TAS) can recommend a speed Table B has no
+      // torque/fuel data for at this same hp/OAT/weight -- heavy + hot + high
+      // reaches the torque limit before the chart's higher-TAS columns even
+      // exist. Rather than fail the whole mission there, cap at the fastest
+      // TAS Table B actually supports at this point and flag it on the row.
+      tasUsed = Math.round(tasChart);
+      [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
+      if (fuelFlowKgH === null){
+        const capped = maxChartedTasFor(hp, oat, weightKg, tasUsed);
+        if (capped === null){
+          stopReason = 'envelope';
+          break;
+        }
+        tasUsed = capped;
+        [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
+        if (fuelFlowKgH === null){
+          stopReason = 'envelope';
+          break;
+        }
+        tasCapped = true;
+      }
     }
-    // FCOM 1.1: best-range power should sit ~0.5 FLI (~2% torque, per Greg)
+    // FCOM 1.1: best-range power should sit ~0.5 FLI (~1% torque, per Greg)
     // below MCP, not right against it. If the chart-recommended TAS (already
     // adjusted above for Table B's own chart-max limit) still produces a
     // torque within that margin of MCP, step down to the next slower charted
     // TAS until clear. Runs AFTER the chart-max cap so the two never fight
-    // each other -- whichever constraint is more restrictive wins.
+    // each other -- whichever constraint is more restrictive wins. Skipped
+    // when tableADirect is true -- tasFromTableBDirect() already picked the
+    // fastest TAS clearing this exact margin, so re-checking is redundant.
     let mcpCapped = false;
-    const marginTas = marginSafeTasFor(hp, oat, weightKg, tasUsed);
-    if (marginTas === null){
-      stopReason = 'envelope';
-      break;
-    }
-    if (marginTas !== tasUsed){
-      tasUsed = marginTas;
-      [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
-      if (fuelFlowKgH === null){
+    if (!tableADirect){
+      const marginTas = marginSafeTasFor(hp, oat, weightKg, tasUsed);
+      if (marginTas === null){
         stopReason = 'envelope';
         break;
       }
-      mcpCapped = true;
+      if (marginTas !== tasUsed){
+        tasUsed = marginTas;
+        [torque, fuelFlowKgH] = lookupTorqueFuel(hp, oat, weightKg, tasUsed);
+        if (fuelFlowKgH === null){
+          stopReason = 'envelope';
+          break;
+        }
+        mcpCapped = true;
+      }
     }
     // Optional-equipment correction applies only to the achieved airspeed
     // (torque and fuel are unaffected, same reasoning as ec225-cruise-torque),
@@ -715,6 +764,7 @@ function runMission(params){
     // itself still runs exactly as before; only the label is gone. mcpCapped
     // (FCOM 1.1 margin) still gets a note since Greg wants that one visible.
     const capReasons = [];
+    if (tableADirect) capReasons.push('No Fig n/1 data at this weight -- fastest TAS from Fig n/2 within MCP margin, not a best-range recommendation');
     if (mcpCapped) capReasons.push('TAS reduced for MCP margin (FCOM 1.1)');
     const capNote = capReasons.join(' + ');
 
