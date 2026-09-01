@@ -228,8 +228,8 @@
     <div class="subsection-divider"></div>
 
     <div class="section-title" style="margin-top:14px;">Cruise Power Margin (FLI = 0.5 Below MCP)</div>
-    <div class="section-sub">Unchecked, cruise may plan right up to AEO Max Continuous. Checked: plan cruise 7% torque below AEO Max Continuous, IAW Flight Crew Operating Manual. Costs a few knots where power is already near the limit &mdash; heavy, hot, or high.</div>
-    <div class="equip-row"><input type="checkbox" id="fcop-margin" checked onchange="runPlanner()"><label for="fcop-margin">Hold 7% below AEO Max Continuous (FCOP)</label></div>
+    <div class="section-sub">Unchecked, cruise may plan right up to AEO Max Continuous. Checked: plan cruise 7% torque below AEO Max Continuous, IAW Flight Crew Operating Manual (FCOM). Costs a few knots where power is already near the limit &mdash; heavy, hot, or high.</div>
+    <div class="equip-row"><input type="checkbox" id="fcop-margin" checked onchange="runPlanner()"><label for="fcop-margin">Hold 7% below AEO Max Continuous (FCOM)</label></div>
     <div class="section-sub" style="margin-top:6px; margin-bottom:0;">Applies to the cruise steps only &mdash; the climb segment always targets 1% below AEO Max Continuous.</div>
   </div>
 
@@ -574,21 +574,21 @@ function lookupAeoMax(hp, oat){
 //     Table A's recommended TAS is still capped so torque never EXCEEDS MCP,
 //     but no additional operational margin is held back.
 //   - box CHECKED (default) -> 7%: always plan 7% torque below AEO Max
-//     Continuous, per FCOP. This is an operational power margin, not a
+//     Continuous, per FCOM. This is an operational power margin, not a
 //     chart-envelope limit, and it only bites where torque was already near
 //     MCP (heavy/hot/high) -- there it can cost a full Table B column of TAS.
 // The CLIMB segment deliberately keeps its own fixed 1% (MCP_MARGIN_PCT)
 // -- Greg's instruction, so the already-validated climb model is not
 // disturbed by a cruise-planning choice.
 const CRUISE_MARGIN_AEO_PCT = 0;  // unchecked: sit at MCP exactly
-const CRUISE_MARGIN_FCOP_PCT = 7; // checked: FCOP operational margin
+const CRUISE_MARGIN_FCOM_PCT = 7; // checked: FCOM operational margin
 function cruiseMarginPct(){
   const el = document.getElementById('fcop-margin');
-  // default to the conservative FCOP margin if the control isn't present
-  return (el && !el.checked) ? CRUISE_MARGIN_AEO_PCT : CRUISE_MARGIN_FCOP_PCT;
+  // default to the conservative FCOM margin if the control isn't present
+  return (el && !el.checked) ? CRUISE_MARGIN_AEO_PCT : CRUISE_MARGIN_FCOM_PCT;
 }
 const MCP_MARGIN_PCT = 1; // ~0.5 FLI per Greg, FCOM 1.1 -- CLIMB segment only
-// Returns { tas, marginLost } -- marginLost is true when the selected FCOP
+// Returns { tas, marginLost } -- marginLost is true when the selected FCOM
 // margin could not be achieved at ANY charted TAS and we fell back to the
 // plain AEO Max Continuous limit instead. Greg's call (2026-07-27): at the
 // heavy/hot/high points where 7% below MCP is unreachable, give a usable
@@ -779,7 +779,7 @@ function climbFuelAtTargetTorque(hp, oat, weight){
   const aeoMax = lookupAeoMax(hp, oat);
   if (aeoMax === null) return null;
   // CLIMB deliberately stays at the fixed 1% regardless of the cruise
-  // FCOP-margin checkbox -- per Greg, so the validated climb model is
+  // FCOM-margin checkbox -- per Greg, so the validated climb model is
   // unaffected by a cruise-planning choice.
   const target = aeoMax - MCP_MARGIN_PCT;
   let best = null;
@@ -941,7 +941,7 @@ function runMission(params){
     if (tasChart === null){
       let directTas = tasFromTableBDirect(hp, oat, weightKg);
       if (directTas === null && cruiseMarginPct() > 0){
-        // FCOP margin unreachable on this fallback too -- retry at plain MCP
+        // FCOM margin unreachable on this fallback too -- retry at plain MCP
         // and flag, rather than halting (same policy as marginSafeTasFor).
         directTas = tasFromTableBDirect(hp, oat, weightKg, 0);
         if (directTas !== null) marginLost = true;
@@ -1244,11 +1244,11 @@ function runPlanner(){
   if (hasMcpFlag){
     const cm = cruiseMarginPct();
     footnoteLines.push(cm > 0
-      ? '* TAS reduced to hold cruise torque ' + cm + '% below AEO Max Continuous (FCOP operational power margin &mdash; checkbox enabled).'
-      : '* TAS reduced to keep cruise torque at or below AEO Max Continuous (no additional margin &mdash; FCOP 7% margin checkbox is OFF).');
+      ? '* TAS reduced to hold cruise torque ' + cm + '% below AEO Max Continuous (FCOM operational power margin &mdash; checkbox enabled).'
+      : '* TAS reduced to keep cruise torque at or below AEO Max Continuous (no additional margin &mdash; FCOM 7% margin checkbox is OFF).');
   }
   if (hasDirectFlag) footnoteLines.push('* No Fig n/1 (Table A) data at this weight/Hp/OAT -- fastest TAS from Fig n/2 (Table B) within the MCP margin, not the book\'s best-range recommendation.');
-  if (hasMarginLostFlag) footnoteLines.push('* <strong>FCOP ' + CRUISE_MARGIN_FCOP_PCT + '% margin NOT achievable at this weight/Hp/OAT</strong> -- no charted TAS keeps torque that far below AEO Max Continuous, so this step is planned at AEO Max Continuous itself, with no power margin in reserve.');
+  if (hasMarginLostFlag) footnoteLines.push('* <strong>FCOM ' + CRUISE_MARGIN_FCOM_PCT + '% margin NOT achievable at this weight/Hp/OAT</strong> -- no charted TAS keeps torque that far below AEO Max Continuous, so this step is planned at AEO Max Continuous itself, with no power margin in reserve.');
   footnoteEl.innerHTML = footnoteLines.join('<br>');
   footnoteEl.style.display = footnoteLines.length ? 'block' : 'none';
 
